@@ -1,5 +1,7 @@
 const express = require("express");
 const bodyParser = require("body-parser");
+require("dotenv").config();
+
 const mongoose = require("mongoose");
 const cors = require("cors");
 const multer = require("multer");
@@ -17,9 +19,10 @@ const KYC = require("./models/KycModel");
 const cloudinary = require("cloudinary").v2;
 const app = express();
 const PORT = 3001;
-const jwtSecret = "abcdefghijklmnopqrstuvwxyz";
+const jwtSecret = process.env.JWT_SECRET;
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const { createProxyMiddleware } = require("http-proxy-middleware");
+const { log } = require("console");
 
 // // Proxy configuration for CoinGecko API
 app.use(
@@ -31,15 +34,15 @@ app.use(
       "^/api/coingecko": "", // remove base path
     },
     headers: {
-      "X-Cg-Pro-Api-Key": "CG-abdEKxm7HXgBnnG2D2eexnmq",
+      "X-Cg-Pro-Api-Key": process.env.COINGECKO_API_KEY,
     },
   })
 );
 
 cloudinary.config({
-  cloud_name: "dsnmhnj0b",
-  api_key: "812327346814326",
-  api_secret: "35duA2Z6IV4sNVzcOIsZVsrffrQ",
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
@@ -58,23 +61,25 @@ app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // MongoDB connection
-const Connection_url =
-  "mongodb+srv://prabesh:prabesh@fyp.ubddnoe.mongodb.net/Crypto?retryWrites=true&w=majority";
+// const Connection_url =
+//   "mongodb+srv://prabesh:prabesh@fyp.ubddnoe.mongodb.net/Crypto?retryWrites=true&w=majority";
 
 mongoose
-  .connect(Connection_url, { useNewUrlParser: true, useUnifiedTopology: true })
+  .connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
   .then(() => app.listen(PORT, () => console.log(`Server running on ${PORT}`)))
   .catch((error) => console.log(error.message));
 
 mongoose.set("strictQuery", true);
 const transporter = nodemailer.createTransport({
-  service: "Gmail",
-  tls: {
-    ciphers: "SSLv3",
-  },
+  host: "smtp.hostinger.com", // Use Hostinger's SMTP server
+  port: 465, // Port for SSL
+  secure: true, // Use SSL
   auth: {
-    user: "info.trcnfx@gmail.com",
-    pass: "wfwi gwle xxdo yijl",
+    user: "support@trcnfx.com", // Your new email address
+    pass: process.env.MAIL_PASS, // Your email password stored in environment variables
   },
 });
 app.post("/api/forgot-password", async (req, res) => {
@@ -101,7 +106,7 @@ app.post("/api/forgot-password", async (req, res) => {
     );
 
     const mailOptions = {
-      from: "info.trcnfx@gmail.com",
+      from: "support@trcnfx.com", // New Hostinger email address
       to: user.email,
       subject: "Password Reset Verification Code",
       text: `Your verification code is ${verificationCode}`,
@@ -320,13 +325,22 @@ app.post(
 
 app.get("/api/wallet-info/:symbol", async (req, res) => {
   const { symbol } = req.params;
+
   try {
-    const walletInfo = await WalletInfo.findOne({
-      symbol: symbol.toUpperCase(),
-    });
+    // Attempt to find the wallet info by symbol first
+    let walletInfo = await WalletInfo.findOne({ symbol: symbol.toUpperCase() });
+
+    // If not found, attempt to find by cryptoName
     if (!walletInfo) {
-      return res.status(404).json({ message: "Wallet info not found" });
+      walletInfo = await WalletInfo.findOne({ cryptoName: symbol });
+
+      // If still not found, return a 404 error
+      if (!walletInfo) {
+        return res.status(404).json({ message: "Wallet info not found" });
+      }
     }
+
+    // Return the found wallet information
     res.json(walletInfo);
   } catch (error) {
     console.error("Error fetching wallet info:", error);
@@ -394,7 +408,7 @@ const fetchCryptoPrice = async (symbol) => {
       {
         params: { ids: symbol, vs_currencies: "usd" },
         headers: {
-          "X-Cg-Pro-Api-Key": "CG-abdEKxm7HXgBnnG2D2eexnmq",
+          "X-Cg-Pro-Api-Key": process.env.COINGECKO_API_KEY,
         },
       }
     );
@@ -405,51 +419,51 @@ const fetchCryptoPrice = async (symbol) => {
   }
 };
 
-app.post("/api/convert", async (req, res) => {
-  const { userId, fromSymbol, toSymbol, amount } = req.body;
+// app.post("/api/convert", async (req, res) => {
+//   const { userId, fromSymbol, toSymbol, amount } = req.body;
 
-  try {
-    const wallet = await Wallet.findOne({ userId });
-    if (!wallet || wallet.balances.get(fromSymbol.toLowerCase()) < amount) {
-      return res.status(400).json({ error: "Insufficient balance." });
-    }
+//   try {
+//     const wallet = await Wallet.findOne({ userId });
+//     if (!wallet || wallet.balances.get(fromSymbol.toLowerCase()) < amount) {
+//       return res.status(400).json({ error: "Insufficient balance." });
+//     }
 
-    const cryptoPrice = await fetchCryptoPrice(toSymbol.toLowerCase());
-    const cryptoAmount = amount / cryptoPrice;
+//     const cryptoPrice = await fetchCryptoPrice(toSymbol.toLowerCase());
+//     const cryptoAmount = amount / cryptoPrice;
 
-    wallet.balances.set(
-      fromSymbol.toLowerCase(),
-      wallet.balances.get(fromSymbol.toLowerCase()) - amount
-    );
+//     wallet.balances.set(
+//       fromSymbol.toLowerCase(),
+//       wallet.balances.get(fromSymbol.toLowerCase()) - amount
+//     );
 
-    if (!wallet.balances.get(toSymbol.toLowerCase())) {
-      wallet.balances.set(toSymbol.toLowerCase(), 0);
-    }
+//     if (!wallet.balances.get(toSymbol.toLowerCase())) {
+//       wallet.balances.set(toSymbol.toLowerCase(), 0);
+//     }
 
-    wallet.balances.set(
-      toSymbol.toLowerCase(),
-      wallet.balances.get(toSymbol.toLowerCase()) + cryptoAmount
-    );
+//     wallet.balances.set(
+//       toSymbol.toLowerCase(),
+//       wallet.balances.get(toSymbol.toLowerCase()) + cryptoAmount
+//     );
 
-    await wallet.save();
+//     await wallet.save();
 
-    const conversion = new Conversion({
-      userId,
-      fromSymbol,
-      toSymbol,
-      amount,
-      convertedAmount: cryptoAmount,
-      status: "completed",
-    });
+//     const conversion = new Conversion({
+//       userId,
+//       fromSymbol,
+//       toSymbol,
+//       amount,
+//       convertedAmount: cryptoAmount,
+//       status: "completed",
+//     });
 
-    await conversion.save();
+//     await conversion.save();
 
-    res.json({ success: true, balances: wallet.balances });
-  } catch (error) {
-    console.error("Error during conversion:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+//     res.json({ success: true, balances: wallet.balances });
+//   } catch (error) {
+//     console.error("Error during conversion:", error);
+//     res.status(500).json({ error: error.message });
+//   }
+// });
 
 app.get("/api/transactions/:userId", async (req, res) => {
   const { userId } = req.params;
@@ -503,7 +517,7 @@ app.get("/api/prices", async (req, res) => {
           sparkline: true,
         },
         headers: {
-          "X-Cg-Pro-Api-Key": "CG-abdEKxm7HXgBnnG2D2eexnmq",
+          "X-Cg-Pro-Api-Key": process.env.COINGECKO_API_KEY,
         },
       }
     );
@@ -584,11 +598,11 @@ app.post("/api/predict", async (req, res) => {
     direction,
     amount,
     deliveryTime,
-    currentPrice,
     uid,
     userId,
     walletAddress,
   } = req.body;
+
   const selectedTime = deliveryTimes.find((time) => time.time === deliveryTime);
 
   if (!selectedTime) {
@@ -601,13 +615,11 @@ app.post("/api/predict", async (req, res) => {
     });
   }
 
-  const cryptoPrice = await fetchCryptoPrice(symbol);
-
-  const cryptoAmount = amount / cryptoPrice;
+  // Fetch wallet based on USDT balance
   const wallet = await Wallet.findOne({ userId });
 
-  if (!wallet || wallet.balances.get("usd") < amount) {
-    return res.status(400).json({ error: "Insufficient USD balance." });
+  if (!wallet || wallet.balances.get("tether") < amount) {
+    return res.status(400).json({ error: "Insufficient USDT balance." });
   }
 
   const prediction = new Prediction({
@@ -615,7 +627,7 @@ app.post("/api/predict", async (req, res) => {
     direction,
     amount,
     deliveryTime,
-    currentPrice: cryptoPrice,
+    currentPrice: await fetchCryptoPrice(symbol),
     predictedAt: Date.now(),
     fee: amount * 0.001,
     uid,
@@ -624,7 +636,8 @@ app.post("/api/predict", async (req, res) => {
   });
 
   try {
-    wallet.balances.set("usd", wallet.balances.get("usd") - amount);
+    // Deduct USDT balance after the prediction is made
+    wallet.balances.set("tether", wallet.balances.get("tether") - amount);
     await wallet.save();
     await prediction.save();
 
@@ -651,45 +664,29 @@ const evaluatePrediction = async (predictionId, interestRate) => {
   const prediction = await Prediction.findById(predictionId);
   if (!prediction) throw new Error("Prediction not found");
 
-  const { symbol, direction, amount, currentPrice, fee, result, userId } =
-    prediction;
-
-  // If result is already set by admin, return it
-  if (result) {
-    const profit = result.success ? (amount - fee) * interestRate : 0; // Only profit amount
-    const totalProfit = result.success ? amount - fee + profit : 0; // Total amount after profit
-    const updatedResult = {
-      success: result.success,
-      profit,
-      totalProfit,
-      message: result.success
-        ? `Admin approved profit of ${profit} USD`
-        : "Admin approved loss",
-    };
-    await Prediction.findByIdAndUpdate(predictionId, { result: updatedResult });
-    return updatedResult;
-  }
+  const { amount, fee, result, userId } = prediction;
 
   const user = await User.findById(userId);
 
   // Check for user default trade result
   if (user.defaultTradeResult) {
     const isSuccess = user.defaultTradeResult === "win";
-    const profit = isSuccess ? (amount - fee) * interestRate : 0; // Only profit amount
-    const totalProfit = isSuccess ? amount - fee + profit : 0; // Total amount after profit
+    const profit = isSuccess ? (amount - fee) * interestRate : 0;
+    const totalProfit = isSuccess ? amount - fee + profit : 0;
+
     const evalResult = {
       success: isSuccess,
       profit,
       totalProfit,
       message: isSuccess
-        ? `Admin approved profit of ${profit} USD`
+        ? `Admin approved profit of ${profit} USDT`
         : "Admin approved loss",
     };
 
     if (isSuccess) {
       await Wallet.updateOne(
         { userId },
-        { $inc: { "balances.usd": totalProfit } }
+        { $inc: { "balances.tether": totalProfit } }
       );
     }
 
@@ -786,6 +783,82 @@ app.delete("/api/wallet/:id", async (req, res) => {
     res.status(500).json({ message: "Internal server error" });
   }
 });
+// Modify your backend route to fetch only pending deposits for the admin's agents
+// Modify your backend route to fetch pending deposits for the agents under the logged-in admin
+app.get("/api/deposits-for-admin/:adminId", async (req, res) => {
+  const { adminId } = req.params;
+
+  try {
+    // Find the admin by their adminId to get the admin name
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    const adminName = admin.name;
+
+    // Find agents under the logged-in admin's team (adminName)
+    const agents = await Agent.find({ team: adminName });
+
+    // Extract the agent IDs
+    const agentIds = agents.map((agent) => agent._id);
+
+    // Find users who are assigned to those agents
+    const clients = await User.find({ agentId: { $in: agentIds } });
+
+    // Extract the client IDs
+    const clientIds = clients.map((client) => client._id);
+
+    // Fetch only the pending deposits for those clients
+    const deposits = await Deposit.find({
+      userId: { $in: clientIds },
+      approved: false, // Fetch only pending deposits
+    }).populate("userId", "userId agentUID"); // Populate userId and agentUID for better details
+
+    res.json(deposits);
+  } catch (error) {
+    console.error("Error fetching pending deposits for admin:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+// API route to fetch send requests for the agents under the logged-in admin
+app.get("/api/send-requests-for-admin/:adminId", async (req, res) => {
+  const { adminId } = req.params;
+
+  try {
+    // Find the admin by their adminId to get the admin name
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    const adminName = admin.name;
+
+    // Find agents under the logged-in admin's team (adminName)
+    const agents = await Agent.find({ team: adminName });
+
+    // Extract the agent IDs
+    const agentIds = agents.map((agent) => agent._id);
+
+    // Find users who are assigned to those agents
+    const clients = await User.find({ agentId: { $in: agentIds } });
+
+    // Extract the client IDs
+    const clientIds = clients.map((client) => client._id);
+
+    // Fetch only the pending send requests for those clients
+    const sendRequests = await Send.find({
+      userId: { $in: clientIds },
+      status: "pending", // Fetch only pending send requests
+    }).populate("userId", "userId agentUID"); // Populate userId and agentUID for better details
+
+    res.json(sendRequests);
+  } catch (error) {
+    console.error("Error fetching send requests for admin:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 app.delete("/api/deposits/:id", async (req, res) => {
   const { id } = req.params;
   try {
@@ -943,10 +1016,12 @@ app.get("/api/cryptos", async (req, res) => {
           sparkline: false,
         },
         headers: {
-          "X-Cg-Pro-Api-Key": "CG-abdEKxm7HXgBnnG2D2eexnmq",
+          "X-Cg-Pro-Api-Key": process.env.COINGECKO_API_KEY,
         },
       }
     );
+    // res.send(response);
+    // console.log(response);
     const cryptos = response.data.map((crypto) => ({
       id: crypto.id,
       symbol: crypto.symbol.toUpperCase(),
@@ -959,6 +1034,28 @@ app.get("/api/cryptos", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+app.get("/api/agent-uid-by-user-id/:userId", async (req, res) => {
+  const { userId } = req.params;
+
+  try {
+    const user = await User.findById(userId).select("agentUID");
+    if (!user) {
+      console.log(`User with userId ${userId} not found`);
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!user.agentUID) {
+      console.log(`Agent UID not assigned for userId ${_id}`);
+      return res.status(404).json({ message: "Agent UID not assigned" });
+    }
+
+    res.json({ agentUID: user.agentUID });
+  } catch (error) {
+    console.error("Error fetching agent UID:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 app.get("/api/wallets/:userId", async (req, res) => {
   try {
     const wallet = await Wallet.findOne({ userId: req.params.userId });
@@ -966,19 +1063,26 @@ app.get("/api/wallets/:userId", async (req, res) => {
       return res.status(404).json({ error: "Wallet not found for this user" });
     }
 
-    // Fetching prices for the coins the user holds
+    // Fetch prices for the coins the user holds
     const symbols = Array.from(wallet.balances.keys());
     const response = await axios.get(
       "https://pro-api.coingecko.com/api/v3/simple/price",
       {
         params: { ids: symbols.join(","), vs_currencies: "usd" },
         headers: {
-          "X-Cg-Pro-Api-Key": "CG-abdEKxm7HXgBnnG2D2eexnmq",
+          "X-Cg-Pro-Api-Key": process.env.COINGECKO_API_KEY,
         },
       }
     );
 
     const prices = response.data;
+
+    // Convert tether balance to USD equivalent
+    const tetherBalance = wallet.balances.get("tether");
+    if (tetherBalance !== undefined) {
+      // Replace tether balance with usd balance
+      wallet.balances.set("tether", wallet.balances.get("usd"));
+    }
 
     res.json({ balances: wallet.balances, prices });
   } catch (error) {
@@ -987,47 +1091,70 @@ app.get("/api/wallets/:userId", async (req, res) => {
   }
 });
 
-app.get("/api/wallet/:userId", async (req, res) => {
+app.get("/api/wallets/:userId", async (req, res) => {
   try {
     const wallet = await Wallet.findOne({ userId: req.params.userId });
-    if (!wallet)
+    if (!wallet) {
       return res.status(404).json({ error: "Wallet not found for this user" });
-    res.json(wallet);
+    }
+
+    // Replace tether balance with USDT balance for all operations
+    const tetherBalance = wallet.balances.get("tether") || 0;
+
+    res.json({ balances: wallet.balances, tetherBalance });
   } catch (error) {
     console.error("Error fetching wallet:", error);
     res.status(500).json({ error: error.message });
   }
 });
+
 app.post("/api/convert", async (req, res) => {
   const { userId, fromSymbol, toSymbol, amount } = req.body;
 
   try {
     const wallet = await Wallet.findOne({ userId });
+    console.log(userId, fromSymbol, toSymbol, amount);
     if (!wallet || wallet.balances.get(fromSymbol.toLowerCase()) < amount) {
       return res.status(400).json({ error: "Insufficient balance." });
     }
 
-    const cryptoPrice = await fetchCryptoPrice(toSymbol.toLowerCase());
+    // Fetch prices for both fromSymbol and toSymbol
+    const fromCryptoPrice = await fetchCryptoPrice(fromSymbol.toLowerCase());
+    const toCryptoPrice = await fetchCryptoPrice(toSymbol.toLowerCase());
 
-    if (!cryptoPrice) {
-      return res.status(400).json({ error: "Invalid cryptocurrency symbol." });
+    if (!fromCryptoPrice || !toCryptoPrice) {
+      return res.status(400).json({ error: "Error fetching crypto prices." });
     }
 
-    const cryptoAmount = amount / cryptoPrice;
+    // Calculate the equivalent amount in the target cryptocurrency (toSymbol)
+    const cryptoAmount = (amount * fromCryptoPrice) / toCryptoPrice;
 
-    wallet.balances.set(
-      fromSymbol.toLowerCase(),
-      wallet.balances.get(fromSymbol.toLowerCase()) - amount
-    );
-
-    if (!wallet.balances.get(toSymbol.toLowerCase())) {
-      wallet.balances.set(toSymbol.toLowerCase(), 0);
+    // Deduct the amount from the source balance (handle USDT as "tether")
+    if (
+      fromSymbol.toLowerCase() === "usd" ||
+      fromSymbol.toLowerCase() === "tether"
+    ) {
+      const tetherBalance = wallet.balances.get("tether") || 0;
+      if (tetherBalance < amount) {
+        return res.status(400).json({ error: "Insufficient tether balance." });
+      }
+      wallet.balances.set("tether", tetherBalance - amount);
+    } else {
+      const fromBalance = wallet.balances.get(fromSymbol.toLowerCase()) || 0;
+      wallet.balances.set(fromSymbol.toLowerCase(), fromBalance - amount);
     }
 
-    wallet.balances.set(
-      toSymbol.toLowerCase(),
-      wallet.balances.get(toSymbol.toLowerCase()) + cryptoAmount
-    );
+    // Add the converted amount to the destination balance
+    if (
+      toSymbol.toLowerCase() === "usd" ||
+      toSymbol.toLowerCase() === "tether"
+    ) {
+      const tetherBalance = wallet.balances.get("tether") || 0;
+      wallet.balances.set("tether", tetherBalance + cryptoAmount);
+    } else {
+      const toBalance = wallet.balances.get(toSymbol.toLowerCase()) || 0;
+      wallet.balances.set(toSymbol.toLowerCase(), toBalance + cryptoAmount);
+    }
 
     await wallet.save();
 
@@ -1065,7 +1192,7 @@ app.get("/api/wallet/:userId/balances", async (req, res) => {
             sparkline: true,
           },
           headers: {
-            "X-Cg-Pro-Api-Key": "CG-abdEKxm7HXgBnnG2D2eexnmq",
+            "X-Cg-Pro-Api-Key": process.env.COINGECKO_API_KEY,
           },
         }
       );
@@ -1093,7 +1220,7 @@ app.get("/api/wallet/:userId/balances", async (req, res) => {
       {
         params: { ids: symbols.join(","), vs_currencies: "usd" },
         headers: {
-          "X-Cg-Pro-Api-Key": "CG-abdEKxm7HXgBnnG2D2eexnmq",
+          "X-Cg-Pro-Api-Key": process.env.COINGECKO_API_KEY,
         },
       }
     );
@@ -1172,6 +1299,7 @@ app.post("/api/deposits/:id/approve", async (req, res) => {
 
     const symbol = deposit.selectedSymbol.toLowerCase();
 
+    // Update Tether balance
     if (!wallet.balances.get(symbol)) {
       wallet.balances.set(symbol, 0);
     }
@@ -1180,11 +1308,22 @@ app.post("/api/deposits/:id/approve", async (req, res) => {
       wallet.balances.get(symbol) + parseFloat(amount)
     );
 
+    // Update USD balance if symbol is Tether (USDT)
+    if (symbol === "tether") {
+      if (!wallet.balances.get("usd")) {
+        wallet.balances.set("usd", 0);
+      }
+      wallet.balances.set(
+        "usd",
+        wallet.balances.get("usd") + parseFloat(amount)
+      );
+    }
+
     await wallet.save();
 
     res.json({
       success: true,
-      message: "Deposit approved and balance updated",
+      message: "Deposit approved and balances updated",
     });
   } catch (error) {
     console.error("Error approving deposit:", error);
@@ -1216,34 +1355,63 @@ app.post("/api/withdraw", async (req, res) => {
   const { userId, symbol, amount } = req.body;
 
   try {
+    // Find the user's wallet
     const wallet = await Wallet.findOne({ userId });
     if (
       !wallet ||
-      !wallet.balances.get(symbol) ||
-      wallet.balances.get(symbol) < amount
+      !wallet.balances.get(symbol.toLowerCase()) ||
+      wallet.balances.get(symbol.toLowerCase()) < amount
     ) {
       return res
         .status(400)
         .json({ error: "Insufficient balance for withdrawal" });
     }
 
-    const cryptoPrice = await fetchCryptoPrice(symbol);
-    const usdAmount = amount * cryptoPrice;
+    // Deduct the amount from the wallet (as it's already done)
+    const newBalance = wallet.balances.get(symbol.toLowerCase()) - amount;
+    wallet.balances.set(symbol.toLowerCase(), newBalance);
 
-    wallet.balances.set(symbol, wallet.balances.get(symbol) - amount);
-    wallet.balances.set("usd", wallet.balances.get("usd") + usdAmount);
+    // Store the frozen amount for withdrawal
+    const frozenAmount = new FrozenAmount({
+      userId,
+      symbol: symbol.toUpperCase(),
+      amount: amount,
+    });
+    await frozenAmount.save();
+
     await wallet.save();
 
     res.json({
       success: true,
-      message: "Withdrawal completed and USD balance updated",
-      usdAmount,
+      message: "Withdrawal requested and amount frozen",
+      frozenAmount,
     });
   } catch (error) {
     console.error("Error processing withdrawal:", error);
     res.status(500).json({ error: error.message });
   }
 });
+const frozenAmountSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  symbol: {
+    type: String,
+    required: true,
+  },
+  amount: {
+    type: Number,
+    required: true,
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+});
+
+const FrozenAmount = mongoose.model("FrozenAmount", frozenAmountSchema);
 
 app.post("/api/send", async (req, res) => {
   const { userId, symbol, amount, address } = req.body;
@@ -1256,10 +1424,18 @@ app.post("/api/send", async (req, res) => {
       return res.status(400).json({ error: "Insufficient balance" });
     }
 
-    // Deduct only the specified amount
+    // Deduct the amount from the wallet
     wallet.balances.set(symbol.toLowerCase(), currentBalance - amount);
     await wallet.save();
 
+    // Update or create the frozen amount
+    await FrozenAmount.findOneAndUpdate(
+      { userId, symbol },
+      { $inc: { amount: amount } }, // Increment the existing amount
+      { upsert: true, new: true } // Create a new document if not found
+    );
+
+    // Create send request
     const sendRequest = new Send({
       userId,
       symbol,
@@ -1271,7 +1447,7 @@ app.post("/api/send", async (req, res) => {
 
     res.json({
       success: true,
-      message: "Send request submitted and pending admin approval",
+      message: "Send request submitted and amount frozen",
     });
   } catch (error) {
     console.error("Error creating send request:", error);
@@ -1295,13 +1471,64 @@ app.post("/api/send-requests/:id/status", async (req, res) => {
 
   try {
     const sendRequest = await Send.findById(id);
-    if (!sendRequest)
+    if (!sendRequest) {
       return res.status(404).json({ error: "Send request not found" });
+    }
 
-    sendRequest.status = status;
-    await sendRequest.save();
+    const { userId, symbol, amount } = sendRequest;
 
-    res.json({ success: true, message: `Send request marked as ${status}` });
+    if (status === "complete") {
+      // Find the frozen amount for the user and symbol
+      const frozenAmountEntry = await FrozenAmount.findOne({ userId, symbol });
+
+      if (!frozenAmountEntry || frozenAmountEntry.amount < amount) {
+        return res.status(400).json({ error: "Insufficient frozen amount" });
+      }
+
+      // Deduct the approved amount from the frozen amount
+      frozenAmountEntry.amount -= amount;
+      if (frozenAmountEntry.amount <= 0) {
+        await FrozenAmount.deleteOne({ userId, symbol });
+      } else {
+        await frozenAmountEntry.save();
+      }
+
+      // Finalize the send request as completed
+      sendRequest.status = "complete";
+      await sendRequest.save();
+
+      res.json({ success: true, message: `Send request marked as ${status}` });
+    } else if (status === "incomplete") {
+      // Refund the frozen amount back to the user's wallet
+      const wallet = await Wallet.findOne({ userId });
+      if (wallet) {
+        wallet.balances.set(
+          symbol.toLowerCase(),
+          wallet.balances.get(symbol.toLowerCase()) + amount
+        );
+        await wallet.save();
+
+        // Remove the frozen amount entry (or reduce it)
+        const frozenAmountEntry = await FrozenAmount.findOne({
+          userId,
+          symbol,
+        });
+        if (frozenAmountEntry) {
+          frozenAmountEntry.amount -= amount;
+          if (frozenAmountEntry.amount <= 0) {
+            await FrozenAmount.deleteOne({ userId, symbol });
+          } else {
+            await frozenAmountEntry.save();
+          }
+        }
+      }
+
+      // Update the send request status
+      sendRequest.status = "incomplete";
+      await sendRequest.save();
+
+      res.json({ success: true, message: `Send request marked as ${status}` });
+    }
   } catch (error) {
     console.error("Error updating send request status:", error);
     res.status(500).json({ error: error.message });
@@ -1377,7 +1604,7 @@ app.post(
       const logoPath = path.join(__dirname, "logo2.png");
 
       const mailOptions = {
-        from: "info.trcnfx@gmail.com",
+        from: "support@trcnfx.com",
         to: user.email,
         subject: "Thank you for signing up!",
         html: `
@@ -1828,6 +2055,57 @@ app.post("/api/admin/agents/:id/decline", async (req, res) => {
     res.status(500).json({ message: "Error declining agent.", error });
   }
 });
+// Backend route to fetch agents assigned to a specific admin
+app.get("/api/agents-for-admin/:adminId", async (req, res) => {
+  try {
+    const { adminId } = req.params;
+
+    // Find the admin by their ID to get their team name
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    const agents = await Agent.find({ team: admin.name }); // Find agents for this admin's team
+    res.json(agents);
+  } catch (error) {
+    console.error("Error fetching agents for admin:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+// Fetch contacts of clients that are assigned to agents under the logged-in admin
+app.get("/api/contacts-for-admin/:adminId", async (req, res) => {
+  const { adminId } = req.params;
+
+  try {
+    // Find the admin by their adminId to get the admin's team
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    // Fetch agents that belong to the admin's team
+    const agents = await Agent.find({ team: admin.name });
+
+    // Extract the agent IDs
+    const agentIds = agents.map((agent) => agent._id);
+
+    // Find users who are clients of those agents
+    const clients = await User.find({ agentId: { $in: agentIds } });
+
+    // Extract client IDs
+    const clientIds = clients.map((client) => client._id);
+
+    // Fetch contacts submitted by those clients
+    const contacts = await Contact.find({ userId: { $in: clientIds } });
+
+    res.json(contacts);
+  } catch (error) {
+    console.error("Error fetching contacts for admin:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
 app.get("/api/agents", async (req, res) => {
   try {
     const agents = await Agent.find({});
@@ -1934,6 +2212,104 @@ app.post("/api/request-client", async (req, res) => {
     res.json({ message: "Client request submitted successfully" });
   } catch (error) {
     console.error("Error requesting client:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+app.get("/api/clients-by-admin/:adminId", async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.params.adminId);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    // Fetch agents that are part of the admin's team
+    const agents = await Agent.find({ team: admin.name });
+
+    // Get all the client IDs assigned to the agents
+    const agentIds = agents.map((agent) => agent._id);
+    const clients = await User.find({ agentId: { $in: agentIds } });
+
+    res.json(clients);
+  } catch (error) {
+    console.error("Error fetching clients:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+// Backend route to fetch pending agents under a specific admin's team
+app.get("/api/admin/agents-pending/:adminId", async (req, res) => {
+  try {
+    const { adminId } = req.params;
+
+    // Find the admin by their ID to get the team name
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    // Fetch agents that belong to the admin's team and have not been approved yet
+    const agents = await Agent.find({ team: admin.name, approved: false });
+
+    res.json(agents);
+  } catch (error) {
+    console.error("Error fetching agents:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+// API route to fetch client requests for agents under the logged-in admin
+app.get("/api/client-requests-for-admin/:adminId", async (req, res) => {
+  const { adminId } = req.params;
+
+  try {
+    // Find the admin by their ID to get their team name
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    const adminName = admin.name;
+
+    // Find agents that are part of the admin's team
+    const agents = await Agent.find({ team: adminName });
+
+    // Extract the agent IDs
+    const agentIds = agents.map((agent) => agent._id);
+
+    // Fetch the client requests for the agents in the admin's team
+    const requests = await ClientRequest.find({
+      agentId: { $in: agentIds },
+    }).populate("agentId clientId");
+
+    res.json(requests);
+  } catch (error) {
+    console.error("Error fetching client requests:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+app.get("/api/clients-for-admin/:adminId", async (req, res) => {
+  const { adminId } = req.params;
+
+  try {
+    // Find the admin by their adminId to get the admin name
+    const admin = await Admin.findById(adminId);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    const adminName = admin.name;
+
+    // Find agents under the logged-in admin's team (adminName)
+    const agents = await Agent.find({ team: adminName });
+
+    // Extract the agent IDs
+    const agentIds = agents.map((agent) => agent._id);
+
+    // Find users who are assigned to those agents
+    const clients = await User.find({ agentId: { $in: agentIds } });
+
+    res.json(clients);
+  } catch (error) {
+    console.error("Error fetching clients for admin:", error);
     res.status(500).json({ message: "Internal server error" });
   }
 });
@@ -2157,6 +2533,382 @@ app.post("/api/wallet3", async (req, res) => {
     res.json({ success: true, message: "Wallet balance updated successfully" });
   } catch (error) {
     console.error("Error updating wallet balance:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+app.post("/api/wallet4", async (req, res) => {
+  const { userId, symbol, amount } = req.body;
+
+  try {
+    let wallet = await Wallet.findOne({ userId });
+    if (!wallet) {
+      // If no wallet exists, create a new wallet with the initial balance for the given symbol
+      wallet = new Wallet({
+        userId,
+        balances: { [symbol.toLowerCase()]: parseFloat(amount) },
+      });
+    } else {
+      const currentBalance = wallet.balances.get(symbol.toLowerCase()) || 0;
+      wallet.balances.set(
+        symbol.toLowerCase(),
+        currentBalance + parseFloat(amount)
+      );
+
+      // If symbol is Tether, update USD as well
+      if (symbol.toLowerCase() === "tether") {
+        const usdBalance = wallet.balances.get("usd") || 0;
+        wallet.balances.set("usd", usdBalance + parseFloat(amount));
+      }
+    }
+
+    await wallet.save();
+
+    res.json({
+      success: true,
+      message: "Wallet balance updated successfully",
+    });
+  } catch (error) {
+    console.error("Error updating wallet balance:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+const adminSchema = new mongoose.Schema({
+  name: { type: String, unique: true, required: true },
+  email: { type: String, unique: true, required: false }, // New email field
+  password: { type: String, required: true },
+  approved: { type: Boolean, default: false },
+});
+
+adminSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+const Admin = mongoose.model("Admin", adminSchema);
+
+app.post(
+  "/api/admin/signup",
+  body("name").notEmpty(),
+  body("email").isEmail().withMessage("Invalid email address"),
+  body("password").isLength({ min: 5 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const { name, email, password } = req.body;
+
+      // Check if an admin with the same email already exists
+      let admin = await Admin.findOne({ email });
+      if (admin) {
+        return res.status(400).json({ message: "Email already in use" });
+      }
+
+      // Check if an admin with the same name already exists
+      admin = await Admin.findOne({ name });
+      if (admin) {
+        return res.status(400).json({ message: "Admin already exists" });
+      }
+
+      // Create new admin
+      admin = new Admin({ name, email, password });
+      await admin.save();
+
+      res.json({
+        message: "Signup successful. Awaiting approval from Master Admin.",
+      });
+    } catch (err) {
+      console.error(err.message);
+      res.status(500).send("Server Error");
+    }
+  }
+);
+
+// Admin Login Route
+app.post("/api/admin/login", async (req, res) => {
+  const { name, password } = req.body;
+
+  try {
+    const admin = await Admin.findOne({ name });
+    if (!admin) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    if (!admin.approved) {
+      return res
+        .status(403)
+        .json({ message: "Admin not approved by Master Admin" });
+    }
+
+    const isMatch = await bcrypt.compare(password, admin.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const payload = { adminId: admin._id };
+    const token = jwt.sign(payload, jwtSecret, { expiresIn: "1h" });
+
+    // Send back the adminId along with the token
+    res.json({ success: true, token, adminId: admin._id });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+app.get("/api/admin/agents/:id", async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+    res.json(admin);
+  } catch (error) {
+    console.error("Error fetching admin:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+// Fetch pending admin signups
+app.get("/api/admins/pending", async (req, res) => {
+  try {
+    const admins = await Admin.find({ approved: false });
+    res.json(admins);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+
+// Approve or decline admin
+app.post("/api/admins/:id/approve", async (req, res) => {
+  const { approved } = req.body;
+  try {
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    if (approved) {
+      admin.approved = true;
+      await admin.save();
+      res.json({ message: "Admin approved" });
+    } else {
+      await Admin.findByIdAndDelete(req.params.id);
+      res.json({ message: "Admin signup declined" });
+    }
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+// Endpoint to fetch all users
+app.get("/api/users", async (req, res) => {
+  try {
+    const users = await User.find({}, "_id email userId");
+    res.json(users);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).json({ message: "Internal server error" });
+  }
+});
+
+// Endpoint to fetch a specific user's wallet details
+app.get("/api/wallet/:userId", async (req, res) => {
+  try {
+    const wallet = await Wallet.findOne({ userId: req.params.userId });
+    if (!wallet) {
+      return res.status(404).json({ error: "Wallet not found" });
+    }
+    res.json(wallet);
+  } catch (error) {
+    console.error("Error fetching wallet:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Endpoint to update wallet balance for the selected currency
+app.post("/api/wallet3", async (req, res) => {
+  const { userId, symbol, amount } = req.body;
+
+  try {
+    const wallet = await Wallet.findOne({ userId });
+    if (!wallet) {
+      return res.status(404).json({ error: "Wallet not found" });
+    }
+
+    const currentBalance = wallet.balances.get(symbol.toLowerCase()) || 0;
+    wallet.balances.set(
+      symbol.toLowerCase(),
+      currentBalance + parseFloat(amount)
+    );
+    await wallet.save();
+
+    res.json({ success: true, message: "Wallet balance updated successfully" });
+  } catch (error) {
+    console.error("Error updating wallet balance:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+// Fetch all admins (add this route if not already present)
+app.get("/api/admins", async (req, res) => {
+  try {
+    const admins = await Admin.find({}, "name _id");
+    res.json(admins);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+
+// Delete an admin by ID
+app.delete("/api/admins/delete/:id", async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.params.id);
+    if (!admin) {
+      return res.status(404).json({ message: "Admin not found" });
+    }
+
+    await Admin.findByIdAndDelete(req.params.id);
+    res.json({ message: "Admin deleted successfully" });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+const masterAdminSchema = new mongoose.Schema({
+  name: { type: String, unique: true, required: true },
+  email: { type: String, unique: true, required: false },
+  password: { type: String, required: true },
+  approved: { type: Boolean, default: false },
+});
+
+const MasterAdmin = mongoose.model("MasterAdmin", masterAdminSchema);
+
+masterAdminSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+  const salt = await bcrypt.genSalt(10);
+  this.password = await bcrypt.hash(this.password, salt);
+  next();
+});
+
+// Signup for Master Admin
+app.post(
+  "/api/master-admin/signup",
+  body("name").notEmpty(),
+  body("email").isEmail().withMessage("Invalid email address"),
+  body("password").isLength({ min: 5 }),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      const { name, email, password } = req.body;
+
+      let masterAdmin = await MasterAdmin.findOne({ email });
+      if (masterAdmin) {
+        return res.status(400).json({ message: "Email already in use" });
+      }
+
+      masterAdmin = await MasterAdmin.findOne({ name });
+      if (masterAdmin) {
+        return res.status(400).json({ message: "Master Admin already exists" });
+      }
+
+      // Hash the password before saving
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
+
+      // Create new Master Admin with hashed password
+      masterAdmin = new MasterAdmin({ name, email, password: hashedPassword });
+
+      await masterAdmin.save();
+
+      res.json({
+        message: "Signup successful. Awaiting approval from Master Admin.",
+      });
+    } catch (err) {
+      console.error(err.message);
+      res.status(500).send("Server Error");
+    }
+  }
+);
+
+// Master Admin Login
+app.post("/api/master-admin/login", async (req, res) => {
+  const { name, password } = req.body;
+
+  try {
+    const masterAdmin = await MasterAdmin.findOne({ name });
+    if (!masterAdmin) {
+      console.log("admin not found");
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const isMatch = await bcrypt.compare(password, masterAdmin.password);
+    if (!isMatch) {
+      console.log("invalid password");
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const payload = { masterAdminId: masterAdmin._id };
+    const token = jwt.sign(payload, jwtSecret, { expiresIn: "1h" });
+
+    res.json({ success: true, token, masterAdminId: masterAdmin._id });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+
+// Fetch all master admins
+app.get("/api/master-admins", async (req, res) => {
+  try {
+    const masterAdmins = await MasterAdmin.find({}, "name _id");
+    res.json(masterAdmins);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+
+// Delete Master Admin
+app.delete("/api/master-admins/delete/:id", async (req, res) => {
+  try {
+    const masterAdmin = await MasterAdmin.findById(req.params.id);
+    if (!masterAdmin) {
+      return res.status(404).json({ message: "Master Admin not found" });
+    }
+
+    await MasterAdmin.findByIdAndDelete(req.params.id);
+    res.json({ message: "Master Admin deleted successfully" });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send("Server Error");
+  }
+});
+
+// Fetch frozen amount by userId and symbol
+app.get("/api/frozen/:userId/", async (req, res) => {
+  try {
+    const userId = req.params.userId;
+
+    const frozenAmounts = await FrozenAmount.find({ userId });
+
+    if (!frozenAmounts.length) {
+      return res
+        .status(404)
+        .json({ error: "No frozen amounts found for this user" });
+    }
+
+    res.json(frozenAmounts);
+  } catch (error) {
+    console.error("Error fetching frozen amounts:", error);
     res.status(500).json({ error: error.message });
   }
 });
